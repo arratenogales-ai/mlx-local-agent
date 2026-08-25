@@ -103,4 +103,4 @@ Documented on purpose: a 14B has real ceilings, and the harness is built around 
 
 ## License
 
-MIT © arratedatascience. See [LICENSE](LICENSE).
+MIT © arratenogales-ai. See [LICENSE](LICENSE).
