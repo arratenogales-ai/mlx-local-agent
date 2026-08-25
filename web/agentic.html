@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic mode · local worker</title>
+<style>
+  /* "Aurora" theme (same visual language as the chat, N13): glass, mint/indigo, space background. */
+  :root{
+    --mint:#34d399; --indigo:#818cf8; --bg0:#04100c; --bg1:#070f1e; --bg2:#0a0716;
+    --txt:#e6f4ee; --txt2:#93aea7; --green:#34d399; --amber:#ffcf7a; --red:#ff6b6b;
+    --glass:rgba(12,26,24,.5); --line:rgba(140,152,252,.32); --halo:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+    color:var(--txt);min-height:100vh;display:flex;flex-direction:column;
+    background:radial-gradient(125% 120% at 50% 0%, var(--bg1), var(--bg0) 45%, var(--bg2) 100%)}
+  body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background:
+      radial-gradient(42% 55% at 14% 16%, rgba(52,211,153,.28), transparent 66%),
+      radial-gradient(46% 50% at 86% 22%, rgba(129,140,248,.28), transparent 68%)}
+  header{display:flex;align-items:center;gap:14px;padding:12px 20px;background:var(--glass);
+    backdrop-filter:blur(20px) saturate(135%);-webkit-backdrop-filter:blur(20px) saturate(135%);
+    border-bottom:1px solid var(--line);box-shadow:var(--halo)}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.03em;text-shadow:0 0 18px rgba(52,211,153,.3)}
+  header .sp{flex:1}
+  a.back{color:var(--indigo);text-decoration:none;font-weight:600;font-size:13px;padding:7px 13px;border-radius:10px;
+    border:1px solid var(--line);transition:.15s}
+  a.back:hover{border-color:var(--mint);color:#c7ffe9;box-shadow:0 0 14px rgba(52,211,153,.3)}
+  main{flex:1;max-width:920px;width:100%;margin:0 auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+  .card{background:var(--glass);backdrop-filter:blur(18px) saturate(130%);-webkit-backdrop-filter:blur(18px) saturate(130%);
+    border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--halo)}
+  .card h2{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mint);margin:0 0 12px;opacity:.9}
+  label{font-size:12px;color:var(--txt2);display:block;margin-bottom:5px}
+  select,input,textarea{width:100%;background:rgba(5,13,12,.55);color:var(--txt);border:1px solid var(--line);
+    border-radius:11px;padding:10px 12px;font:inherit}
+  select:focus,input:focus,textarea:focus{outline:none;border-color:var(--mint);box-shadow:0 0 0 3px rgba(52,211,153,.15)}
+  textarea{resize:vertical;min-height:64px}
+  .row{display:flex;gap:10px;align-items:flex-end}
+  .row > div{flex:1}
+  button{background:var(--mint);color:#04120d;border:0;border-radius:11px;padding:10px 18px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
+  button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 0 22px rgba(52,211,153,.55)}
+  button:disabled{opacity:.5;cursor:default}
+  button.sec{background:rgba(129,140,248,.14);color:var(--mint);border:1px solid var(--line)}
+  .notice{color:var(--amber);font-size:13px;margin-top:8px;min-height:18px}
+  /* Worker steps */
+  #taskTitle{font-size:13px;color:var(--txt2);margin-bottom:10px}
+  #taskTitle b{color:#c7ffe9}
+  ol.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+  ol.steps li{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;
+    border:1px solid transparent;background:rgba(129,140,248,.06);color:var(--txt2);transition:.2s}
+  li.in_progress{border-color:rgba(52,211,153,.55);color:var(--txt);background:rgba(52,211,153,.10);box-shadow:0 0 16px rgba(52,211,153,.18)}
+  li.done{color:var(--txt)}
+  li.stopped{border-color:rgba(255,207,122,.5);color:var(--amber)}
+  .icon{width:18px;text-align:center;flex:0 0 auto}
+  li.in_progress .icon{animation:spin 1s linear infinite;display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #log{margin-top:12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--txt2);
+    max-height:220px;overflow:auto;background:rgba(4,14,12,.5);border:1px solid var(--line);border-radius:10px;padding:10px;display:none}
+  #log div{padding:1px 0}
+  /* END banner: large and unmistakable, with an attention pulse when it appears. */
+  #final{margin-top:14px;padding:15px 18px;border-radius:12px;font-weight:700;font-size:15px;display:none;
+         animation:finPulse 1.1s ease-out 2}
+  #final.done{background:rgba(52,211,153,.16);border:1.5px solid rgba(52,211,153,.75);color:#c7ffe9;
+         box-shadow:0 0 26px rgba(52,211,153,.35)}
+  #final.stopped{background:rgba(255,207,122,.14);border:1.5px solid rgba(255,207,122,.7);color:var(--amber);
+         box-shadow:0 0 22px rgba(255,207,122,.25)}
+  /* Phase A: "done WITHOUT strong verification", visually DISTINCT from the check (orange, needs review) */
+  #final.done_unverified{background:rgba(255,159,67,.14);border:1.5px solid rgba(255,159,67,.75);color:#ffcf9e;
+         box-shadow:0 0 22px rgba(255,159,67,.3)}
+  #final.error{background:rgba(255,107,107,.14);border:1.5px solid rgba(255,107,107,.7);color:var(--red);
+         box-shadow:0 0 22px rgba(255,107,107,.25)}
+  #final .detail{display:block;font-weight:400;font-size:13px;margin-top:4px;color:var(--txt2)}
+  @keyframes finPulse{0%{transform:scale(.985)}45%{transform:scale(1.012)}100%{transform:scale(1)}}
+  @media (prefers-reduced-motion: reduce){ #final{animation:none} }
+  .status{margin-left:auto;font-size:12px;color:var(--txt2)}
+  /* N17 Phase A, "still working" heartbeat: elapsed time + pulse; a slow task (minutes)
+     does not look stuck. Amber when waiting for your approval; frozen when it ends. */
+  #heartbeat{display:none;align-items:center;gap:8px;margin:2px 0 10px;font-size:12px;color:var(--txt2)}
+  #heartbeat .pulse{width:9px;height:9px;border-radius:50%;background:var(--mint);flex:0 0 auto;
+    box-shadow:0 0 10px rgba(52,211,153,.8);animation:beat 1.2s ease-in-out infinite}
+  #heartbeat.waiting .pulse{background:var(--amber);box-shadow:0 0 10px rgba(255,207,122,.7);animation:none}
+  #heartbeat.ended .pulse{animation:none;opacity:.45}
+  @keyframes beat{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.55}}
+  @media (prefers-reduced-motion: reduce){ #heartbeat .pulse{animation:none} }
+  /* Phase C, STAGES with approval (human-in-the-loop) */
+  li.approved{border-color:rgba(52,211,153,.6);color:#c7ffe9;background:rgba(52,211,153,.13)}
+  li.done_unverified{border-color:rgba(255,159,67,.6);color:#ffcf9e}
+  li.error{border-color:rgba(255,107,107,.55);color:var(--red)}
+  #stages{margin:0 0 12px}
+  #stages h3{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--indigo);margin:0 0 8px;opacity:.9}
+  #approval{margin-top:12px;padding:14px 16px;border-radius:12px;display:none;
+    background:rgba(129,140,248,.11);border:1.5px solid rgba(129,140,248,.6);box-shadow:0 0 22px rgba(129,140,248,.22)}
+  #approval .title{font-weight:700;font-size:14px;color:#c7d2ff;margin-bottom:4px}
+  #approval .detail{font-size:13px;color:var(--txt2);margin-bottom:11px}
+  #approval .btns{display:flex;gap:8px;flex-wrap:wrap}
+  #approval .redo{background:rgba(255,159,67,.16);color:#ffcf9e;border:1px solid rgba(255,159,67,.6)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛠️ Agentic mode <span style="color:var(--txt2);font-weight:400">· the system works for you</span></h1>
+  <span class="sp"></span>
+  <!-- N17 Phase A: git version of the code serving this page (is the server up to date?) -->
+  <span id="versionTag" title="version (git commit) of the code the web server is running"
+        style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--txt2);opacity:.85"></span>
+  <span id="conn" class="status">connecting…</span>
+  <a class="back" href="/">← back to chat</a>
+</header>
+<main>
+  <div class="card">
+    <h2>Project</h2>
+    <div class="row">
+      <div>
+        <label for="project">Choose an existing project</label>
+        <div class="row" style="gap:6px"><div><select id="project"></select></div>
+          <button class="sec" id="btnRefresh" type="button" title="Re-read ~/agent_projects (new folders, including ones created by hand)">🔄</button></div>
+      </div>
+      <div style="flex:0 0 auto;max-width:260px">
+        <label for="newProject">…or create a new one</label>
+        <div class="row"><div><input id="newProject" placeholder="project name"></div>
+          <button class="sec" id="btnNew" type="button">Create</button></div>
+      </div>
+    </div>
+    <div class="notice" id="projectNotice"></div>
+  </div>
+
+  <div class="card">
+    <h2>Task</h2>
+    <label for="task">What do you want the worker to do in this project?</label>
+    <textarea id="task" placeholder="e.g. create a single-page static website"></textarea>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button id="send" type="button">Send task</button>
+      <span class="notice" id="taskNotice" style="margin-top:0"></span>
+    </div>
+  </div>
+
+  <div class="card" id="liveCard" style="display:none">
+    <h2>Live</h2>
+    <!-- Phase 3: worker control (the signal is applied BETWEEN passes; cancel stops the loop) -->
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="sec" id="btnPause" type="button" title="Pauses the loop between passes">⏸ Pause</button>
+      <button class="sec" id="btnResume" type="button" style="display:none">▶ Resume</button>
+      <button class="sec" id="btnCancel" type="button" title="Cancels the task between passes">⏹ Cancel</button>
+    </div>
+    <!-- N17 Phase A: heartbeat, elapsed time + "still working" (a slow task does not look stuck) -->
+    <div id="heartbeat"><span class="pulse"></span><span id="heartbeatTxt"></span></div>
+    <div id="taskTitle"></div>
+    <div id="stages"></div>
+    <ol class="steps" id="steps"></ol>
+    <div id="log"></div>
+    <!-- Phase C: when a stage finishes the worker STOPS here and waits for your approval -->
+    <div id="approval">
+      <div class="title" id="approvTitle"></div>
+      <div class="detail" id="approvDetail"></div>
+      <div class="btns">
+        <button id="btnApprove" type="button">✅ Approve and continue</button>
+        <button class="redo" id="btnRedo" type="button">↻ Redo this stage</button>
+        <button class="sec" id="btnCancelStage" type="button">⏹ Cancel</button>
+      </div>
+    </div>
+    <div id="final"></div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let ws = null, busy = false;
+
+// ---- Projects (reuses the chat endpoints: GET/POST /projects) ----
+async function loadProjects(sel){
+  try{
+    const r = await fetch("/projects"); const j = await r.json();
+    // FIX "undefined" bug: /projects returns a list of NAMES (strings), not objects. It used to read
+    // p.name (-> "undefined" in the dropdown, broken selection, and the worker wrote to ~/.../undefined/).
+    // Filter out any non-string value just in case: NEVER paint or send "undefined".
+    const projects = (j.projects || []).filter(n => typeof n === "string" && n && n !== "undefined");
+    const active = sel || j.active || projects[0] || "";
+    $("#project").innerHTML = projects.length
+      ? projects.map(n => `<option value="${esc(n)}" ${n===active?"selected":""}>${esc(n)}</option>`).join("")
+      : `<option value="">(no projects, create one)</option>`;
+  }catch(e){ $("#projectNotice").textContent = "Could not load the projects."; }
+}
+$("#btnNew").onclick = async () => {
+  const name = $("#newProject").value.trim();
+  if(!name){ $("#projectNotice").textContent = "Enter a name."; return; }
+  try{
+    const r = await fetch("/projects", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name: name})});
+    const j = await r.json();
+    if(!r.ok){ $("#projectNotice").textContent = j.error || "Could not create the project."; return; }
+    $("#newProject").value = ""; $("#projectNotice").textContent = `Project "${j.active}" created.`;
+    await loadProjects(j.active);
+  }catch(e){ $("#projectNotice").textContent = "Error creating the project."; }
+};
+
+// ---- Worker WebSocket (/ws-agentic) ----
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws-agentic`);
+  ws.onopen  = () => { $("#conn").textContent = "connected"; };
+  ws.onclose = () => { $("#conn").textContent = "disconnected"; setTimeout(connect, 1500); };
+  ws.onmessage = e => handleEvent(JSON.parse(e.data));
+}
+function setBusy(v){ busy = v; $("#send").disabled = v; $("#send").textContent = v ? "Working…" : "Send task"; }
+
+$("#send").onclick = () => {
+  const task = $("#task").value.trim();
+  const project = $("#project").value;
+  if(!task){ $("#taskNotice").textContent = "Enter a task."; return; }
+  // FIX "undefined" bug: never send the task without a VALID project (nor the literal string "undefined")
+  if(!project || project === "undefined"){ $("#taskNotice").textContent = "Choose or create a project."; return; }
+  if(busy || !ws || ws.readyState !== WebSocket.OPEN){ $("#taskNotice").textContent = "Wait for the connection…"; return; }
+  $("#taskNotice").textContent = "";
+  // reset of the live view (including the tab title from the previous end banner)
+  document.title = "Agentic mode · local worker";
+  $("#liveCard").style.display = ""; $("#steps").innerHTML = ""; $("#log").innerHTML = ""; $("#log").style.display = "none";
+  $("#stages").innerHTML = ""; hideApproval(); heartbeatReset();
+  $("#final").style.display = "none"; $("#final").className = "";
+  ws.send(JSON.stringify({task: task, project: project}));
+  setBusy(true);
+};
+
+// ---- N17 Phase A: "still working" heartbeat (elapsed time + last progress) ----
+// All on the CLIENT: stopwatch from worker_start; each worker event counts as "progress".
+// HONEST states (N17-A adversarial review): working (green) · waiting for approval (amber) ·
+// PAUSE you requested (amber, without it, it said "still working" during the whole pause) · end (frozen).
+let hbStart = null, hbLast = null, hbTimer = null, hbMode = "working";
+function fmtSec(s){ s = Math.max(0, Math.round(s)); const m = Math.floor(s/60);
+  return m ? `${m}m ${String(s%60).padStart(2,"0")}s` : `${s}s`; }
+function renderHeartbeat(){
+  if(hbStart === null) return;
+  const t = (Date.now() - hbStart)/1000, u = (Date.now() - hbLast)/1000;
+  $("#heartbeatTxt").textContent =
+    hbMode === "waiting" ? `⏱ ${fmtSec(t)} · waiting for your approval`
+    : hbMode === "paused" ? `⏱ ${fmtSec(t)} · paused, you requested it (applied between passes)`
+    : `⏱ ${fmtSec(t)} · still working (last progress ${fmtSec(u)} ago)`;
+}
+function setHeartbeatMode(mode){       // working | waiting | paused, amber covers waiting and paused
+  hbMode = mode;
+  $("#heartbeat").classList.toggle("waiting", mode !== "working");
+  renderHeartbeat();
+}
+function heartbeatStart(){
+  hbStart = Date.now(); hbLast = Date.now(); hbMode = "working";
+  const el = $("#heartbeat"); el.className = ""; el.style.display = "flex";
+  renderHeartbeat();
+  if(hbTimer) clearInterval(hbTimer);
+  hbTimer = setInterval(renderHeartbeat, 1000);
+}
+function heartbeatWorking(){ setHeartbeatMode("working"); }   // after approve/redo/resume
+function heartbeatEnd(){
+  if(hbTimer){ clearInterval(hbTimer); hbTimer = null; }
+  if(hbStart !== null){
+    $("#heartbeat").className = "ended";
+    $("#heartbeatTxt").textContent = `⏱ took ${fmtSec((Date.now() - hbStart)/1000)}`;
+  }
+  hbStart = null;
+}
+function heartbeatReset(){             // hides the heartbeat (view reset / restored run, not live)
+  if(hbTimer){ clearInterval(hbTimer); hbTimer = null; }
+  hbStart = null; const el = $("#heartbeat"); el.className = ""; el.style.display = "none";
+}
+
+const ICO = {pending:"○", in_progress:"◔", done:"✓", stopped:"⏸", approved:"✅", done_unverified:"⚠", error:"✗"};
+function handleEvent(ev){
+  if(hbStart !== null) hbLast = Date.now();               // N17: any event = sign of life
+  switch(ev.type){
+    case "worker_start":
+      heartbeatStart();                                        // N17: start the heartbeat stopwatch
+      $("#taskTitle").innerHTML = `Project <b>${esc(ev.project||"-")}</b> · task: <b>${esc(ev.task||"")}</b>`;
+      break;
+    case "worker_plan":
+      renderPlan(ev.steps);
+      break;
+    case "worker_step": {
+      if(ev.state === "in_progress") heartbeatWorking();    // N17: a pass starts = truly working
+      const li = $(`#step-${ev.i}`); if(!li) break;       // (covers auto-resume when a pause expires)
+      li.className = ev.state || "pending";
+      li.querySelector(".icon").textContent = ICO[ev.state] || "○";
+      break;
+    }
+    case "worker_log": {
+      const log = $("#log"); log.style.display = "";
+      const d = document.createElement("div"); d.textContent = ev.text || ""; log.appendChild(d);
+      log.scrollTop = log.scrollHeight;
+      break;
+    }
+    case "worker_stages":                                 // Phase C: the list of STAGES (you approve each one)
+      renderStages(ev.stages, ev.estados);
+      break;
+    case "worker_stage": {                                // updates the state of a stage
+      const li = $(`#stage-${ev.i}`); if(!li) break;
+      li.className = ev.state || "pending";
+      li.querySelector(".icon").textContent = ICO[ev.state] || "○";
+      if(ev.state === "in_progress") heartbeatWorking();    // N17: another stage starts -> "working"
+      break;
+    }
+    case "worker_awaiting_approval":                      // the worker STOPPED: show the approval box
+      setHeartbeatMode("waiting");                        // N17: amber pulse "waiting for your approval"
+      showApproval(ev);
+      break;
+    case "worker_final": {
+      hideApproval();
+      heartbeatEnd();                                     // N17: freeze the heartbeat with the total duration
+      renderFinal(ev.state, ev.summary);
+      setBusy(false);
+      break;
+    }
+  }
+}
+function renderStages(stages, states){
+  const box = $("#stages");
+  if(!stages || !stages.length){ box.innerHTML = ""; return; }
+  box.innerHTML = `<h3>Stages (${stages.length}) · you approve each one</h3><ol class="steps">` +
+    stages.map((e,i) => {
+      const st = (states && states[i]) || "pending";
+      return `<li id="stage-${i}" class="${esc(st)}"><span class="icon">${ICO[st]||ICO.pending}</span><span>${esc(e)}</span></li>`;
+    }).join("") + `</ol>`;
+}
+function showApproval(ev){
+  const label = {done:"✅ verified", done_unverified:"⚠️ done (no strong verification)",
+              stopped:"⏹️ stopped", error:"❌ with error"}[ev.state] || ev.state;
+  $("#approvTitle").textContent = `Stage ${(ev.i||0)+1} finished (${label}), review it and decide`;
+  $("#approvDetail").textContent = ev.summary || "";
+  $("#btnApprove").textContent = ev.last ? "✅ Approve and finish" : "✅ Approve and continue";
+  // A stage that did NOT go well (stopped/error) cannot be approved: hide the button (only redo/cancel).
+  const canApprove = ev.can_approve !== false && (!ev.actions || ev.actions.indexOf("approve") >= 0);
+  $("#btnApprove").style.display = canApprove ? "" : "none";
+  const box = $("#approval"); box.style.display = "block";
+  if(box.scrollIntoView) box.scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+function hideApproval(){ $("#approval").style.display = "none"; }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// Clear END banner (in addition to the subtask checks): large banner + pulse + scroll to it, and the
+// tab title changes. FIX for the invisible-banner bug: the stylesheet has `#final{display:none}` and
+// `style.display=""` does NOT override it (empty inline -> CSS wins), so an EXPLICIT value ("block")
+// is required. Reused by the worker_final event and by the RESTORATION of the run.
+function renderFinal(state, summary, restored){
+  const f = $("#final"); f.className = state || "done";
+  f.style.display = "block";                        // EXPLICIT value: overrides the CSS display:none
+  // Phase A, HONEST states: check only for what is VERIFIED; warning for done without strong verification; stopped/error.
+  const label = {done:"✅ Task finished (verified)",
+              done_unverified:"⚠️ Done, no strong verification, review it yourself",
+              stopped:"⏹️ Stopped", error:"❌ Error"}[state] || state;
+  const extra = restored ? " (last run, restored)" : "";
+  f.innerHTML = `${esc(label)}${esc(extra)}<span class="detail">${esc(summary||"")}</span>`;
+  if(!restored){                                    // the "hot" notice: attention + tab title
+    if(f.scrollIntoView) f.scrollIntoView({behavior:"smooth", block:"nearest"});
+    document.title = `${{done:"✅", done_unverified:"⚠️", stopped:"⏹️", error:"❌"}[state] || "•"} finished · Agentic mode`;
+  }
+}
+
+function renderPlan(steps, states){
+  $("#steps").innerHTML = (steps||[]).map((p,i) => {
+    const st = (states && states[i]) || "pending";
+    return `<li id="step-${i}" class="${esc(st)}"><span class="icon">${ICO[st]||ICO.pending}</span><span>${esc(p)}</span></li>`;
+  }).join("");
+}
+
+// ---- Restore the project's last run (N15): on load or when switching projects, instead of an empty
+// panel it re-paints what the worker persisted (.worker/state.json via /worker-status). ----
+async function restoreRun(project){
+  if(!project || project === "undefined" || busy) return;   // with a live run, do not overwrite it
+  try{
+    const r = await fetch(`/worker-status?project=${encodeURIComponent(project)}`);
+    if(!r.ok) return;
+    const j = await r.json(); const e = j.state || {};
+    if(!e.state) return;                                        // that project has no runs -> nothing
+    $("#liveCard").style.display = "";
+    $("#taskTitle").innerHTML = `Project <b>${esc(project)}</b> · task: <b>${esc(e.task||"-")}</b>`;
+    hideApproval(); heartbeatReset();                          // N17: a restored run is not "live"
+    if(e.staged){ $("#stages").innerHTML = ""; renderStages(e.plan, e.steps); $("#steps").innerHTML = ""; }
+    else { $("#stages").innerHTML = ""; renderPlan(e.plan, e.steps); }
+    $("#log").innerHTML = ""; $("#log").style.display = "none";
+    if(e.state === "running"){                                // closed mid-run (honest)
+      renderFinal("stopped", "The run was left interrupted (the app closed while it was running).", true);
+    } else {
+      renderFinal(e.state, e.summary, true);
+    }
+  }catch(err){ /* no state to restore: the panel stays as it is */ }
+}
+
+// ---- Phase 3: pause / resume / cancel control (persistent signal per project) ----
+// N17 (adversarial review): sendSignal() returns whether the signal actually ARRIVED (r.ok), the UI
+// only changes state on confirmation (before, a failed fetch left buttons/heartbeat asserting something false).
+async function sendSignal(s){
+  const project = $("#project").value; if(!project) return false;
+  try{
+    const r = await fetch("/worker-control", {method:"POST", headers:{"Content-Type":"application/json"},
+                                              body: JSON.stringify({project: project, signal: s})});
+    if(!r.ok) throw new Error("HTTP " + r.status);
+  }catch(e){ return false; }   // the worker keeps the previous signal; the UI does NOT pretend it arrived
+  $("#btnPause").style.display    = (s === "pause") ? "none" : "";
+  $("#btnResume").style.display = (s === "pause") ? "" : "none";
+  return true;
+}
+$("#btnPause").onclick    = async () => { if(await sendSignal("pause")) setHeartbeatMode("paused"); };
+$("#btnResume").onclick = async () => { if(await sendSignal("continue")) heartbeatWorking(); };
+$("#btnCancel").onclick = () => sendSignal("cancel");
+// Phase C: approve / redo / cancel the current STAGE. The box is only hidden if the signal ARRIVED;
+// if the POST fails, it is re-shown (with the heartbeat still "waiting") so it can be retried.
+async function decideStage(s){
+  hideApproval();
+  if(await sendSignal(s)){ if(s !== "cancel") heartbeatWorking(); }
+  else { $("#approval").style.display = "block"; }
+}
+$("#btnApprove").onclick       = () => decideStage("approve");
+$("#btnRedo").onclick       = () => decideStage("redo");
+$("#btnCancelStage").onclick = () => decideStage("cancel");
+
+// N15: switching projects RESTORES its last run; opening the dropdown RE-READS the list
+// (so folders added by hand in ~/agent_projects appear without reloading the page).
+$("#project").onchange = () => restoreRun($("#project").value);
+$("#project").addEventListener("focus", () => loadProjects($("#project").value));
+// Phase A: refresh-projects button (re-read the base without reloading the page)
+$("#btnRefresh").onclick = () => loadProjects($("#project").value);
+
+loadProjects().then(() => restoreRun($("#project").value));
+connect();
+// N17 Phase A: git version of the code serving this page (same endpoint as the chat panel)
+fetch("/system-status").then(r => r.json())
+  .then(s => { if(s.version) $("#versionTag").textContent = "v " + s.version; })
+  .catch(() => {});
+</script>
+</body>
+</html>

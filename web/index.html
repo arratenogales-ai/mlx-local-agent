@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Agent · visual chat</title>
+<style>
+  /* Aurora theme (Level 13A + 13B): spatial glass look, mint/indigo neon.
+     Pure CSS, no dependencies. Re-skin: same ids/classes/structure/handlers the JS uses. */
+  :root{
+    --mint:#34d399; --indigo:#818cf8;
+    --bg0:#04100c; --bg1:#070f1e; --bg2:#0a0716;
+    --txt:#e6f4ee; --txt2:#93aea7;
+    --acc:#34d399;                                   /* mint: accent, focus, caret, citations */
+    --green:#34d399; --amber:#ffcf7a; --red:#ff6b6b; --cyan:#67e8f9; --mag:#a5b4fc;
+    --glass:rgba(12,26,24,.44); --glass2:rgba(22,37,41,.55);
+    --line:rgba(140,152,252,.32);                    /* brighter glass border */
+    --shadow:0 10px 34px rgba(0,0,0,.5); --halo:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+       color:var(--txt);height:100vh;display:flex;flex-direction:column;overflow:hidden;
+       background:radial-gradient(125% 120% at 50% 0%, var(--bg1), var(--bg0) 45%, var(--bg2) 100%)}
+  /* Spatial background: nebula (mint/indigo radials, present but soft) + starfield, in two FIXED
+     layers behind the content (position:fixed, out of the flex flow; negative z-index, the glass
+     panels blur them behind with backdrop-filter). */
+  body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:
+      radial-gradient(42% 55% at 14% 16%, rgba(52,211,153,.34), transparent 66%),
+      radial-gradient(46% 50% at 86% 22%, rgba(129,140,248,.34), transparent 68%),
+      radial-gradient(46% 44% at 62% 104%, rgba(52,211,153,.20), transparent 70%),
+      radial-gradient(40% 40% at 26% 82%, rgba(129,140,248,.18), transparent 72%);
+    animation:drift 26s ease-in-out infinite alternate}
+  body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.8;
+    background-image:
+      radial-gradient(1.2px 1.2px at 24px 32px, rgba(255,255,255,.95), transparent),
+      radial-gradient(1px 1px at 88px 120px, rgba(197,255,235,.8), transparent),
+      radial-gradient(1px 1px at 150px 64px, rgba(255,255,255,.8), transparent),
+      radial-gradient(1.5px 1.5px at 190px 172px, rgba(190,200,255,.85), transparent),
+      radial-gradient(1px 1px at 46px 182px, rgba(255,255,255,.65), transparent),
+      radial-gradient(1px 1px at 120px 202px, rgba(255,255,255,.6), transparent);
+    background-repeat:repeat;background-size:230px 230px;animation:twinkle 6s ease-in-out infinite}
+  @keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(0,-2.2%,0)}}
+  @keyframes twinkle{0%,100%{opacity:.6}50%{opacity:.95}}
+  /* Themed scrollbar */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(129,140,248,.28);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(52,211,153,.45);background-clip:content-box}
+
+  header{display:flex;align-items:center;gap:14px;padding:11px 18px;position:relative;z-index:1;
+         background:var(--glass);backdrop-filter:blur(20px) saturate(135%);-webkit-backdrop-filter:blur(20px) saturate(135%);
+         border-bottom:1px solid var(--line);box-shadow:var(--halo)}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.04em;text-shadow:0 0 18px rgba(52,211,153,.3)}
+  header .status{margin-left:auto;font-size:12px;color:var(--txt2);display:flex;align-items:center;gap:9px}
+  /* Status orb (was a dot): pulses, and its ring spins when connected (green). While THINKING
+     (body.thinking, task in progress) it pulses faster and glows more. */
+  .dot{width:14px;height:14px;border-radius:50%;position:relative;flex:0 0 auto;transition:box-shadow .3s;
+    background:radial-gradient(circle at 34% 30%, #ffc9c9, var(--red));box-shadow:0 0 10px rgba(255,107,107,.5)}
+  .dot.on{background:radial-gradient(circle at 34% 30%, #b6f7dc, var(--mint));box-shadow:0 0 14px rgba(52,211,153,.7)}
+  .dot.on::before{content:"";position:absolute;inset:-7px;border-radius:50%;
+    background:radial-gradient(circle, rgba(52,211,153,.5), transparent 68%);animation:pulse 2.6s ease-in-out infinite}
+  .dot.on::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1.5px solid transparent;
+    border-top-color:rgba(129,140,248,.9);border-right-color:rgba(52,211,153,.65);animation:g 3.6s linear infinite}
+  @keyframes pulse{0%,100%{transform:scale(.75);opacity:.45}50%{transform:scale(1.28);opacity:.95}}
+  body.thinking .dot.on{box-shadow:0 0 18px rgba(52,211,153,.95),0 0 30px rgba(129,140,248,.5)}
+  body.thinking .dot.on::before{animation-duration:1s}      /* "thinking": the orb speeds up */
+  body.thinking .dot.on::after{animation-duration:1.4s}
+
+  main{flex:1;display:grid;grid-template-columns:212px 1fr 320px;gap:0;min-height:0;position:relative;z-index:1}
+  /* Projects panel (Level 7B) */
+  nav#projects{background:var(--glass);backdrop-filter:blur(20px) saturate(130%);-webkit-backdrop-filter:blur(20px) saturate(130%);
+       border-right:1px solid var(--line);overflow-y:auto;padding:14px 11px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--halo)}
+  nav#projects h3{margin:0 0 4px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mint);opacity:.9}
+  .proj{padding:7px 9px;border-radius:10px;color:var(--txt2);font-size:13px;border:1px solid transparent;
+       display:flex;align-items:center;gap:4px;transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+  .proj:hover{background:rgba(129,140,248,.12);color:var(--txt);box-shadow:0 0 14px rgba(129,140,248,.18)}
+  .proj.active{background:linear-gradient(90deg, rgba(52,211,153,.22), rgba(129,140,248,.2));
+       color:var(--txt);border-color:rgba(52,211,153,.6);font-weight:600;box-shadow:0 0 18px rgba(52,211,153,.22)}
+  .proj-name{flex:1;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .proj-del{background:none;border:0;cursor:pointer;color:var(--txt2);font-size:13px;opacity:0;padding:2px 4px;transition:opacity .15s}
+  .proj:hover .proj-del{opacity:.7}
+  .proj-del:hover{opacity:1 !important;color:var(--red)}
+  #newProj,#newChat{background:rgba(129,140,248,.10);color:var(--mint);border:1px dashed rgba(52,211,153,.45);
+       border-radius:10px;padding:9px;font-weight:600;cursor:pointer;font-size:13px;transition:.18s;width:100%}
+  #newProj:hover,#newChat:hover{border-color:var(--mint);background:rgba(52,211,153,.14);box-shadow:0 0 20px rgba(52,211,153,.28)}
+  #chatsPanel{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);margin-top:4px;padding-top:2px}
+  #chatsPanel h3{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--indigo);opacity:.9;margin:0 0 2px}
+  .proj-empty{color:#5a6d67;font-style:italic;font-size:12px;padding:4px 6px}
+  /* Skills panel (Level 9C), 13B: chips light up when forced/activated */
+  .skills{display:flex;flex-wrap:wrap;gap:6px}
+  .skill{background:rgba(129,140,248,.12);border:1px solid var(--line);border-radius:14px;padding:3px 11px;
+       font-size:12px;color:var(--txt2);cursor:pointer;user-select:none;transition:.18s}
+  .skill:hover{border-color:var(--mint);color:var(--txt);box-shadow:0 0 12px rgba(52,211,153,.3)}
+  .skill.forced{background:linear-gradient(135deg,var(--mint),var(--indigo));color:#04120d;border-color:transparent;
+       font-weight:600;animation:chipForced 2.2s ease-in-out infinite}
+  .skill.active{border-color:var(--indigo);color:var(--txt);background:rgba(129,140,248,.18);animation:chipActive 1.6s ease-in-out infinite}
+  @keyframes chipForced{0%,100%{box-shadow:0 0 12px rgba(52,211,153,.45)}50%{box-shadow:0 0 22px rgba(52,211,153,.8),0 0 8px rgba(129,140,248,.6)}}
+  @keyframes chipActive{0%,100%{box-shadow:0 0 10px rgba(129,140,248,.4)}50%{box-shadow:0 0 20px rgba(129,140,248,.75)}}
+  .skill-hint{font-size:11px;color:var(--txt2);margin-top:8px}
+  /* Conversation search/export (Level 12C): bar above the chat (part of the conversation) */
+  #convPanel{padding:11px 20px;position:relative;z-index:1;border-bottom:1px solid var(--line);
+       background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+  .convBar{display:flex;gap:6px;flex-wrap:wrap}
+  #convSearch{flex:1;min-width:120px;background:rgba(5,13,12,.55);color:var(--txt);border:1px solid var(--line);
+    border-radius:9px;padding:6px 9px;font-size:13px;transition:.15s}
+  #convSearch:focus{outline:none;border-color:var(--mint);box-shadow:0 0 0 3px rgba(52,211,153,.15)}
+  .convRes{margin-top:8px;max-height:200px;overflow-y:auto;font-size:12px;color:var(--txt2)}
+  .convItem{background:rgba(129,140,248,.10);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin-bottom:6px}
+  .convItem b{color:var(--mint);font-weight:600}
+  .convItem .u{color:var(--txt)}
+  /* Drop files into the chat (Level 10C) */
+  #chat.dragging{outline:2px dashed var(--mint);outline-offset:-10px;background:rgba(52,211,153,.08)}
+  /* Center column: conversation bar (12C) on top + chat that fills and scrolls */
+  #chatCol{display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;z-index:1}
+  #chat{flex:1;min-height:0;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px}
+  /* 13B: messages enter with a smooth transition (fade + rise) */
+  .bubble{max-width:80%;padding:11px 14px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word;
+        line-height:1.55;box-shadow:0 3px 14px rgba(0,0,0,.32);animation:enterIn .34s cubic-bezier(.2,.7,.2,1) both}
+  .bubble.user{align-self:flex-end;color:#04120d;font-weight:500;border-bottom-right-radius:4px;
+        background:linear-gradient(135deg,var(--mint),var(--indigo));box-shadow:0 4px 20px rgba(52,211,153,.38)}
+  .bubble.bot{align-self:flex-start;background:var(--glass2);border:1px solid var(--line);box-shadow:var(--halo),0 3px 14px rgba(0,0,0,.32);
+        backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom-left-radius:4px}
+  .bubble.err{align-self:flex-start;background:rgba(58,33,38,.82);color:#ffb3b3;border:1px solid var(--red);border-bottom-left-radius:4px}
+  .bubble.bot .citation{color:var(--indigo);font-weight:600;background:rgba(129,140,248,.14);padding:.5px 5px;border-radius:5px}
+  @keyframes enterIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  /* "live" card (13B: TIMELINE plan->run->verify, light beam over the existing events) */
+  .run{align-self:stretch;background:var(--glass);border:1px solid var(--line);border-radius:14px;position:relative;
+       padding:13px 15px;font-size:13px;backdrop-filter:blur(14px) saturate(125%);-webkit-backdrop-filter:blur(14px) saturate(125%);
+       box-shadow:var(--halo),var(--shadow);animation:enterIn .34s cubic-bezier(.2,.7,.2,1) both}
+  /* Vertical spine of the timeline: runs through the event icon column. */
+  .run::before{content:"";position:absolute;left:22px;top:40px;bottom:15px;width:2.5px;border-radius:3px;z-index:0;
+    background:linear-gradient(to bottom, rgba(52,211,153,.35), rgba(129,140,248,.35))}
+  /* Light beam: travels the spine ONLY on the active card while thinking (plan->verify energy). */
+  body.thinking .run:last-of-type::before{
+    background:linear-gradient(to bottom, rgba(52,211,153,.12) 0%, var(--mint) 44%, var(--indigo) 56%, rgba(129,140,248,.12) 100%);
+    background-size:100% 260%;animation:beam 2.1s linear infinite}
+  @keyframes beam{0%{background-position:0 100%}100%{background-position:0 -160%}}
+  .run h4{margin:0 0 9px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--indigo);position:relative;z-index:1}
+  .ev{padding:5px 0;border-top:1px dashed var(--line);display:flex;gap:9px;align-items:flex-start;position:relative;z-index:1;
+      animation:evEnterIn .28s ease both}                /* 13B: each event slides in */
+  @keyframes evEnterIn{from{opacity:0;transform:translateX(-7px)}to{opacity:1;transform:none}}
+  .ev:first-of-type{border-top:0}
+  .ev .icon{flex:0 0 18px;text-align:center;position:relative}
+  .ev .icon::after{content:"";position:absolute;top:50%;left:50%;width:22px;height:22px;transform:translate(-50%,-50%);
+    border-radius:50%;background:radial-gradient(circle, var(--bg1) 52%, transparent 72%);z-index:-1}  /* disc = timeline node (covers the spine) */
+  .ev .content{flex:1;min-width:0}
+  .ev.typing .content{color:var(--txt)}                 /* 5D: text the model writes live */
+  .streamtxt{white-space:pre-wrap;word-wrap:break-word}
+  .streamtxt::after{content:"▋";color:var(--acc);animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .step{color:var(--txt2)} .step.active{color:var(--indigo);font-weight:600;text-shadow:0 0 10px rgba(129,140,248,.5)}
+  .tool .name{color:var(--cyan);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .tool .args{color:var(--txt2);font-family:ui-monospace,monospace;font-size:12px}
+  .res{margin-top:4px;background:rgba(4,10,9,.7);border:1px solid var(--line);border-radius:7px;
+       padding:6px 9px;font-family:ui-monospace,monospace;font-size:12px;color:var(--txt2);
+       white-space:pre-wrap;max-height:160px;overflow:auto;display:none}
+  .res.open{display:block}
+  .verify .est{font-weight:600}
+  .ok{color:var(--green)} .fail{color:var(--red)} .inconclusive{color:var(--amber)} .warn{color:var(--amber)}
+  .plan ol{margin:4px 0 0;padding-left:20px} .plan li{margin:2px 0;color:var(--txt2)}
+  .toggle{cursor:pointer;color:var(--mint);font-size:12px;user-select:none;transition:.15s}
+  .toggle:hover{text-shadow:0 0 10px rgba(52,211,153,.6)}
+  /* Sidebar (brain + memory) */
+  aside{background:var(--glass);backdrop-filter:blur(20px) saturate(130%);-webkit-backdrop-filter:blur(20px) saturate(130%);
+        border-left:1px solid var(--line);overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px;position:relative;z-index:1;box-shadow:var(--halo)}
+  .card{background:rgba(129,140,248,.07);border:1px solid var(--line);border-radius:13px;padding:13px 14px;box-shadow:var(--halo)}
+  .card h3{margin:0 0 9px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mint);opacity:.92}
+  .role{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+  .role .v{font-family:ui-monospace,monospace;font-size:12px}
+  .role .v.local{color:var(--green)} .role .v.strong{color:var(--mag)}
+  #memory{background:rgba(5,13,12,.45);border:1px solid var(--line);border-radius:10px;padding:11px;
+           white-space:pre-wrap;font-size:12.5px;color:var(--txt2);max-height:46vh;overflow:auto}
+  #memory.empty{color:#5a6d67;font-style:italic}
+  /* Input bar (composer, glass) */
+  footer{padding:13px 18px;position:relative;z-index:1;background:var(--glass);
+         backdrop-filter:blur(20px) saturate(135%);-webkit-backdrop-filter:blur(20px) saturate(135%);
+         border-top:1px solid var(--line);display:flex;gap:10px;align-items:flex-end;box-shadow:var(--halo)}
+  textarea{flex:1;resize:none;background:rgba(5,13,12,.55);color:var(--txt);border:1px solid var(--line);
+           border-radius:12px;padding:11px 13px;font:inherit;max-height:140px;transition:border-color .15s,box-shadow .15s}
+  textarea:focus{outline:none;border-color:var(--mint);box-shadow:0 0 0 3px rgba(52,211,153,.15)}
+  /* Buttons: mint base; 13B adds hover glow. The amber chrome accents move to Aurora (mint). */
+  button{background:var(--mint);color:#04120d;border:0;border-radius:11px;padding:10px 18px;font-weight:600;cursor:pointer;transition:.15s}
+  button:disabled{opacity:.5;cursor:default}
+  button.sec{background:rgba(129,140,248,.12);color:var(--mint);border:1px solid var(--line);font-weight:600}
+  button.sec:hover{border-color:var(--mint);color:#c7ffe9;box-shadow:0 0 14px rgba(52,211,153,.35)}
+  /* Phase 2: attached-image chip (Aurora look: glass + mint glow) above the composer */
+  #imgAttached{display:flex;align-items:center;gap:8px;margin:0 18px 8px;padding:7px 12px;width:fit-content;
+    max-width:calc(100% - 36px);background:var(--glass);backdrop-filter:blur(14px) saturate(125%);
+    -webkit-backdrop-filter:blur(14px) saturate(125%);border:1px solid var(--line);border-radius:11px;
+    font-size:13px;color:var(--txt);box-shadow:0 0 18px rgba(52,211,153,.20)}
+  #imgAttached .name{color:#c7ffe9;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+  #imgAttached .hint{color:var(--txt2)}
+  #imgAttached .remove{background:transparent;border:0;color:var(--txt2);cursor:pointer;font-size:14px;padding:0 3px;line-height:1;box-shadow:none}
+  #imgAttached .remove:hover{color:var(--mint);box-shadow:none;transform:none}
+  /* Send: circular with mint->indigo glow (idle label is an up arrow; the spinner takes its place on send) */
+  #send{width:46px;height:46px;padding:0;border-radius:50%;flex:0 0 auto;font-size:19px;line-height:1;
+    color:#04120d;font-weight:700;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,var(--mint),var(--indigo));
+    box-shadow:0 0 20px rgba(52,211,153,.5),0 4px 14px rgba(129,140,248,.4)}
+  #send:hover:not(:disabled){transform:translateY(-1px) scale(1.06);box-shadow:0 0 30px rgba(52,211,153,.7),0 6px 22px rgba(129,140,248,.6)}
+  #send:disabled{opacity:.6}
+  #send .spin{border-color:rgba(4,18,13,.5);border-top-color:transparent}
+  .play{background:none;border:0;color:var(--txt2);cursor:pointer;font-size:12px;padding:2px 4px;display:block;margin-top:6px;transition:.15s}
+  .play:hover{color:var(--mint);text-shadow:0 0 10px rgba(52,211,153,.6)}
+  #mic.recording{color:var(--red);border-color:var(--red);box-shadow:0 0 14px rgba(255,107,107,.45)}
+  .chk{display:flex;align-items:center;gap:5px;color:var(--txt2);font-size:12px;white-space:nowrap}
+  .chk input{accent-color:var(--mint)}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--txt2);border-top-color:transparent;
+        border-radius:50%;animation:g .8s linear infinite;vertical-align:-2px}
+  @keyframes g{to{transform:rotate(360deg)}}
+  /* 13B: responsive polish (desktop tool; on small screens it degrades gracefully) */
+  @media (max-width:1180px){ main{grid-template-columns:190px 1fr 288px} }
+  @media (max-width:980px){ main{grid-template-columns:176px 1fr} aside{display:none} }
+  @media (max-width:640px){
+    main{grid-template-columns:1fr} nav#projects{display:none}
+    .bubble{max-width:92%} #convPanel{padding:10px 12px} footer{padding:10px 12px}
+  }
+  /* Accessibility: prefers-reduced-motion CALMS all motion (background, stars, orb, timeline beam,
+     chips, message/event entrances). The functional loading spinner stays. */
+  @media (prefers-reduced-motion:reduce){
+    body::before,body::after,.dot.on::before,.dot.on::after,.streamtxt::after,
+    .bubble,.run,.ev,.skill.forced,.skill.active,
+    body.thinking .run:last-of-type::before,
+    body.thinking .dot.on::before,body.thinking .dot.on::after{animation:none !important}
+    .dot.on::before{opacity:.55;transform:scale(1)}
+    .skill.forced{box-shadow:0 0 14px rgba(52,211,153,.5)}
+    .skill.active{box-shadow:0 0 12px rgba(129,140,248,.5)}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Local Agent · <span id="projActive" style="color:var(--acc);font-weight:600">no project</span></h1>
+  <!-- Level 15: opens AGENTIC MODE (worker) in a SEPARATE tab, the chat stays intact -->
+  <a href="/agentic" target="_blank" rel="noopener" title="Open agentic mode (worker) in a new tab"
+     style="margin-left:auto;color:var(--indigo);text-decoration:none;font-weight:600;font-size:13px;padding:7px 13px;
+            border-radius:10px;border:1px solid var(--line);transition:.15s"
+     onmouseover="this.style.borderColor='var(--mint)';this.style.color='#c7ffe9';this.style.boxShadow='0 0 14px rgba(52,211,153,.3)'"
+     onmouseout="this.style.borderColor='var(--line)';this.style.color='var(--indigo)';this.style.boxShadow='none'">🛠️ Agentic mode</a>
+  <div class="status" style="margin-left:14px">
+    <!-- N17 Phase A: git version of the code serving this web (is the server up to date?) -->
+    <span id="versionTag" title="git version (commit) of the code the web server is serving"
+          style="font-family:ui-monospace,monospace;font-size:11px;color:var(--txt2);opacity:.85"></span>
+    <span id="dot" class="dot"></span><span id="statusTxt">connecting…</span>
+  </div>
+</header>
+
+<!-- N17 Phase A: BIG alert if the brain (MLX server) goes down, with how to fix it -->
+<div id="systemAlert" style="display:none;padding:9px 18px;font-size:13px;font-weight:600;color:#ffd7d7;
+     background:rgba(255,107,107,.13);border-bottom:1.5px solid rgba(255,107,107,.55);position:relative;z-index:1">
+  ⚠️ The brain (MLX server) is not responding, the chat cannot think.
+  Restart it in a terminal with <code style="font-family:ui-monospace,monospace">./start_local.sh</code>.
+  <span style="font-weight:400;color:var(--txt2)">(If you just sent an image, it's the vision RAM handoff: it comes back on its own.)</span>
+</div>
+
+<main>
+  <nav id="projects">
+    <h3>📁 Projects</h3>
+    <button id="newProj">+ new project</button>
+    <div id="projList"></div>
+    <!-- Level 14: chats of the active project (project documents and memory are shared) -->
+    <div id="chatsPanel" style="display:none">
+      <h3 style="margin-top:14px">💬 Chats</h3>
+      <button id="newChat">+ new chat</button>
+      <div id="chatList"></div>
+    </div>
+  </nav>
+  <div id="chatCol">
+    <div id="convPanel" style="display:none">
+      <div class="convBar">
+        <input id="convSearch" type="text" placeholder="🔎 search the conversation…" maxlength="200"
+               autocomplete="off">
+        <button id="btnConvSearch" class="sec" title="Search the project conversation">🔎</button>
+        <button id="btnExportMd" class="sec" title="Download the conversation as Markdown">⬇ .md</button>
+      </div>
+      <div id="convResults" class="convRes"></div>
+    </div>
+    <div id="chat"></div>
+  </div>
+  <aside>
+    <!-- N17 Phase A: SYSTEM status panel at a glance (polls /system-status every 15 s) -->
+    <div class="card" id="cardSystem">
+      <h3>🩺 System</h3>
+      <div class="role"><span>brain (MLX)</span><span id="s-brain" class="v">-</span></div>
+      <div class="role"><span>model</span><span id="s-model" class="v" style="max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">-</span></div>
+      <div class="role"><span>web (this chat)</span><span id="s-web" class="v">-</span></div>
+      <div class="role"><span>web search</span><span id="s-search" class="v">-</span></div>
+      <div class="role"><span>version</span><span id="s-version" class="v">-</span></div>
+    </div>
+    <div class="card">
+      <h3>🧠 Brain (by role)</h3>
+      <div class="role"><span>planner</span><span id="b-planner" class="v">-</span></div>
+      <div class="role"><span>executor</span><span id="b-executor" class="v">-</span></div>
+      <div class="role"><span>verifier</span><span id="b-verifier" class="v">-</span></div>
+    </div>
+    <div class="card" id="cardSkills" style="display:none">
+      <h3>🧩 Skills</h3>
+      <div id="skillList" class="skills"></div>
+      <div id="skillHint" class="skill-hint">automatic selection</div>
+    </div>
+    <div class="card">
+      <h3>📓 Project memory <span style="color:var(--txt2);font-weight:400;text-transform:none;letter-spacing:0">· shared</span></h3>
+      <div id="memory" class="empty">(no memory yet)</div>
+    </div>
+    <div class="card" id="cardChatMemory" style="flex:1;min-height:0;display:none">
+      <h3>🧵 Chat memory <span id="chatMemoryName" style="color:var(--txt2);font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+      <div id="chatMemory" class="empty">(no chat memory yet)</div>
+    </div>
+  </aside>
+</main>
+
+<!-- Phase 2: pending attached-image chip (vision). Hidden unless you paste/drop an image. -->
+<div id="imgAttached" style="display:none">
+  <span class="icon">🖼️</span><span class="name"></span>
+  <span class="hint">your next question will read it</span>
+  <button class="remove" type="button" title="Remove the attached image" aria-label="Remove image">✕</button>
+</div>
+
+<footer>
+  <textarea id="input" rows="1" placeholder="Write a task for the agent…  (Enter sends · Shift+Enter for a new line)"></textarea>
+  <button id="mic" class="sec" style="display:none" title="Dictate by voice (local STT)">🎤</button>
+  <button id="undo" class="sec" style="display:none" title="Restore files to the state before the last task">↩ undo</button>
+  <label class="chk"><input type="checkbox" id="fast"> fast</label>
+  <button id="send" title="Send" aria-label="Send">↑</button>
+</footer>
+
+<script>
+// Visual chat client (5A). Opens a WebSocket to the backend and RENDERS the
+// agent's events live. No frameworks: direct DOM.
+const $ = s => document.querySelector(s);
+const chat = $("#chat");
+const esc = t => (t ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+let ws, busy = false, run = null;   // `run` = the live card of the current task
+let voiceState = {tts:false, stt:false};   // 8D: which voice is available (loaded at startup)
+let sttInterval = 3, sttWindow = 30;    // 8D: how often and what window to transcribe live (from config)
+const MAX_CLIP_SEC = 300;               // 8D: cap of the dictation PCM buffer (last 5 min; bounded memory)
+
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen  = () => setStatus(true);
+  ws.onclose = () => {
+    setStatus(false);
+    if(busy){                     // the socket dropped WITH a task running: the backend
+      bubble("err", "The connection was lost during the task; try again.");
+      setBusy(false);             // ...abandons it, so re-enable the input (don't hang the UI)
+      run = null;                 // discard the orphaned live card
+    }
+    setTimeout(connect, 1200);    // simple reconnect
+  };
+  ws.onmessage = e => handle(JSON.parse(e.data));
+}
+function setStatus(on){
+  $("#dot").classList.toggle("on", on);
+  $("#statusTxt").textContent = on ? "connected" : "disconnected";
+}
+
+// ---- DOM helpers ----
+// 13: highlights RAG CITATIONS ([file] or [file:line]) in the agent's answers.
+// SAFE: the text is ESCAPED first (anti-XSS, same path as esc()) and ONLY THEN is the citation
+// pattern wrapped in a <span>; the only injected HTML is that span (none of the model's text is).
+// The pattern requires an extension (.md/.xlsx/…) so it doesn't color normal prose brackets ([note]).
+const _RX_CITATION = /\[[^\]\n]+?\.[A-Za-z0-9]{1,8}(?::\d+)?\]/g;
+function bubble(cls, text){
+  const d = document.createElement("div");
+  d.className = "bubble " + cls;
+  if(cls === "bot") d.innerHTML = esc(text).replace(_RX_CITATION, '<span class="citation">$&</span>');
+  else d.textContent = text;                                   // user/err: plain text (safe)
+  if(cls === "bot" && voiceState.tts && (text||"").trim()){    // 8D: read-aloud button (uses the RAW text)
+    const b = document.createElement("button");
+    b.className = "play"; b.textContent = "🔊 read"; b.onclick = () => playAudio(text);
+    d.appendChild(b);
+  }
+  chat.appendChild(d); scrollDown(); return d;
+}
+function newCard(){
+  const c = document.createElement("div");
+  c.className = "run"; c.innerHTML = '<h4>live activity</h4>';
+  chat.appendChild(c); scrollDown(); return c;
+}
+function row(icon, htmlBody, cls=""){
+  const f = document.createElement("div");
+  f.className = "ev " + cls;
+  f.innerHTML = `<div class="icon">${icon}</div><div class="content">${htmlBody}</div>`;
+  run.appendChild(f); scrollDown(); return f;
+}
+const scrollDown = () => { chat.scrollTop = chat.scrollHeight; };
+
+// Live "typing" area: accumulates the model's deltas (5D). Any structured event
+// (tool, verification, final…) closes it: it was text already consumed or a tool
+// call (whose JSON we don't want to leave as noise).
+function typingArea(){
+  if(!run) return null;
+  if(!run._typing) run._typing = row("✍️", `<span class="streamtxt"></span>`, "typing");
+  return run._typing.querySelector(".streamtxt");
+}
+function clearTyping(){ if(run && run._typing){ run._typing.remove(); run._typing = null; } }
+
+// ---- Handling each agent event ----
+function handle(ev){
+  if(!["delta","brains","memory","memory_updated","start"].includes(ev.type)) clearTyping();
+  switch(ev.type){
+    case "start":
+      run = newCard();
+      run._steps = null;
+      $("#undo").style.display = "none";   // 8A: new task -> hide the previous undo
+      break;
+    case "snapshot":           // 8A: the task changed files -> offer undo
+      snapProject = activeProject;
+      $("#undo").style.display = activeProject ? "" : "none";
+      break;
+    case "difficulty":         // 8C: metacognition -> hard-task notice (non-blocking)
+      row("🧭", `<span class="warn">${esc(ev.hint || "this looks hard")}</span>`);
+      break;
+    case "delta":              // 5D: the model writes token by token -> paint live
+      { const el = typingArea(); if(el){ el.textContent += ev.text; scrollDown(); } }
+      break;
+    case "intent":          // 5D: triage decided it's chat (direct answer, no pipeline)
+      if(run) run._chat = (ev.mode === "chat");
+      break;
+    case "brains":
+      setBrain("planner", ev.planner); setBrain("executor", ev.executor); setBrain("verifier", ev.verifier);
+      break;
+    case "project":           // 7B/14: backend confirms the turn's active project+chat -> honest label
+      { let changed = false;
+        if (ev.name && ev.name !== activeProject){ activeProject = ev.name; changed = true; }
+        if (ev.chat && ev.chat !== activeChat){ activeChat = ev.chat; changed = true; }
+        if (changed) renderActive(); }
+      break;
+    case "skill":          // 9C: a skill activated this turn -> show it and highlight the panel
+      row("🧩", `skill: <b>${esc(ev.name)}</b>${ev.forced ? " · forced" : ""}`);
+      markSkillActive(ev.name);
+      break;
+    case "memory":
+    case "memory_updated":
+      setMemory(ev.text);
+      break;
+    case "plan": {
+      const steps = Array.isArray(ev.steps) ? ev.steps : [];   // type guard (don't trust blindly)
+      const lis = steps.map(p => `<li>${esc(p)}</li>`).join("");
+      const f = row("🗺️", `<div class="plan"><b>Plan (${steps.length})</b><ol>${lis}</ol></div>`);
+      run._steps = f.querySelectorAll("li");
+      break;
+    }
+    case "step":
+      if(run && run._steps && run._steps[ev.i-1]){
+        run._steps.forEach(li => li.classList.remove("active"));
+        run._steps[ev.i-1].classList.add("active");
+      }
+      break;
+    case "tool": {
+      const f = row("🔧", `<span class="tool"><span class="name">${esc(ev.name)}</span> ` +
+                          `<span class="args">${esc(ev.args)}</span></span>`, "tool");
+      run._lastTool = f;   // to hang the result on
+      break;
+    }
+    case "tool_result": {
+      const content = run && run._lastTool ? run._lastTool.querySelector(".content") : null;
+      if(content){
+        const id = "r"+Math.random().toString(36).slice(2);
+        content.insertAdjacentHTML("beforeend",
+          ` <span class="toggle" data-t="${id}">▸ result</span>` +
+          `<div class="res" id="${id}">${esc(ev.result)}</div>`);
+        run._lastTool = null;
+      }
+      break;
+    }
+    case "verifying":
+      row("🔍", `<span class="step">Verifying work (attempt ${ev.attempt}/${ev.max})…</span>`, "verify");
+      break;
+    case "verdict": {
+      if(ev.state === "ok") row("✅", `<span class="est ok">Verification OK</span>`, "verify");
+      else if(ev.state === "failure") row("❌", `<span class="est fail">FAIL:</span> ${esc(ev.detail)}`, "verify");
+      else row("⚠️", `<span class="est inconclusive">Inconclusive:</span> ${esc(ev.detail)}`, "verify");
+      break;
+    }
+    case "hint":
+      row("⛔", `<span class="warn">${esc(ev.text)}</span>`);
+      break;
+    case "vision":             // Phase 2: vision worker progress (reading the image)
+      row("🖼️", `<span class="step">${esc(ev.text)}</span>`);
+      break;
+    case "self_critique":        // 6C: the agent reviewed its own plan and adjusted it
+      row("🔎", `<span class="step">Plan self-critique -> ${ev.steps ? ev.steps.length : ""} step(s)</span>`);
+      break;
+    case "lessons":          // 6C: loaded lessons from past errors when starting the task
+      row("📒", `<span class="step">Lessons from past errors loaded</span>`);
+      break;
+    case "lesson":            // 6C: recorded a new lesson after an honest stop
+      row("📝", `<span class="step">Lesson recorded (so the error isn't repeated)</span>`);
+      break;
+    case "final":
+      // In a chat (or any turn with no structured rows) the "live activity" card
+      // is empty after clearing typing: remove it so we don't leave noise.
+      if(run && !run.querySelector(".ev:not(.typing)")) run.remove();
+      bubble("bot", ev.text);
+      finish();
+      break;
+    case "error":
+      bubble("err", "Error: " + ev.text);
+      finish();
+      break;
+  }
+}
+
+function setBrain(role, label){
+  const el = $("#b-"+role); if(!el || !label) return;
+  el.textContent = label;
+  const local = /local/i.test(label);
+  el.className = "v " + (local ? "local" : "strong");
+}
+function setMemory(t){
+  const el = $("#memory");
+  if(t && t.trim()){ el.textContent = t; el.classList.remove("empty"); }
+  else { el.textContent = "(no memory yet)"; el.classList.add("empty"); }
+}
+
+// Expand/collapse a tool result
+chat.addEventListener("click", e => {
+  const t = e.target.closest(".toggle"); if(!t) return;
+  const r = document.getElementById(t.dataset.t);
+  const open = r.classList.toggle("open");
+  t.textContent = (open ? "▾" : "▸") + " result";
+});
+
+// ---- Sending ----
+const input = $("#input"), btn = $("#send");
+function send(){
+  const task = input.value.trim();
+  if((!task && !attachedImage) || busy || ws.readyState !== WebSocket.OPEN) return;
+  bubble("user", (attachedImage ? "🖼️ " : "") + (task || "(read it and extract the data)"));
+  // Level 7B/14: the task goes INSIDE the active project and its active CHAT (conversation/memory/
+  // snapshots per chat). Level 9C: forced skill (empty = automatic). Phase 2: attached image (empty = no vision).
+  ws.send(JSON.stringify({task: task, fast: $("#fast").checked, project: activeProject || "",
+                          chat: activeChat || "", skill: forcedSkill || "", image: attachedImage || ""}));
+  input.value=""; input.style.height="auto";
+  removeImage();
+  setBusy(true);
+}
+function finish(){ setBusy(false); }
+function setBusy(v){
+  busy = v;
+  btn.disabled = v; input.disabled = v;
+  btn.innerHTML = v ? '<span class="spin"></span>' : "↑";   // 13A: circular button -> ↑ glyph (id/handler intact; title/aria keep "Send")
+  document.body.classList.toggle("thinking", v);            // 13B: "thinking" indicator (orb speeds up + timeline beam runs on the active card)
+  if(!v) input.focus();
+}
+btn.onclick = send;
+input.addEventListener("keydown", e => {
+  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); }
+});
+input.addEventListener("input", () => {   // auto-grow the textarea
+  input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px";
+});
+
+// ---- Projects (Level 7B): thin layer over the 7A backend API ----
+let activeProject = null;
+let activeChat = null;                        // Level 14: active chat of the project
+
+function renderActive(){
+  $("#projActive").textContent = activeProject
+    ? ("📁 " + activeProject + (activeChat ? " · 💬 " + activeChat : "")) : "no project";
+  $("#convPanel").style.display = activeProject ? "" : "none";   // 12C: search/export conversation
+  $("#chatsPanel").style.display = activeProject ? "" : "none";  // 14: project chat list
+  $("#cardChatMemory").style.display = activeProject ? "" : "none";
+  if(!activeProject){ $("#convResults").innerHTML = ""; $("#chatList").innerHTML = ""; activeChat = null; }
+}
+// --- Level 14: chats of the active project ---
+function renderChats(list, active){
+  activeChat = active || null;
+  const cont = $("#chatList"); cont.innerHTML = "";
+  (list || []).forEach(id => {
+    const d = document.createElement("div");
+    d.className = "proj" + (id === activeChat ? " active" : "");
+    const name = document.createElement("span");
+    name.className = "proj-name"; name.textContent = id; name.title = id;
+    name.onclick = () => openChat(id);
+    const del = document.createElement("button");
+    del.className = "proj-del"; del.textContent = "🗑"; del.title = "Delete chat";
+    del.onclick = (e) => { e.stopPropagation(); deleteChat(id); };
+    d.appendChild(name); d.appendChild(del);
+    cont.appendChild(d);
+  });
+}
+function setChatMemory(t){
+  const el = $("#chatMemory");
+  if(t && t.trim()){ el.textContent = t; el.classList.remove("empty"); }
+  else { el.textContent = "(no chat memory yet)"; el.classList.add("empty"); }
+  $("#chatMemoryName").textContent = activeChat ? ("· " + activeChat) : "";
+}
+async function openChat(id){
+  if(busy || !activeProject || id === activeChat) return;
+  try{
+    const r = await fetch("/active-chat", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({project: activeProject, chat: id})});
+    const data = await r.json();
+    if(data.error){ alert(data.error); return; }
+    activeChat = data.active_chat; renderActive();
+    document.querySelectorAll("#chatList .proj").forEach(el =>
+      el.classList.toggle("active", el.textContent === activeChat));
+    chat.innerHTML = ""; run = null;                     // load the conversation of THAT chat
+    (data.conversation || []).forEach(m => bubble(m.role === "user" ? "user" : "bot", m.content));
+    setChatMemory(data.chat_memory || "");
+    $("#undo").style.display = "none"; snapProject = null;
+    input.focus();
+  }catch(e){ /* flaky network: don't break the UI */ }
+}
+async function newChat(){
+  if(!activeProject){ alert("Open a project first."); return; }
+  const name = (prompt("Name for the new chat (empty = automatic):") || "").trim();
+  try{
+    const r = await fetch("/chats", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({project: activeProject, name: name})});
+    const data = await r.json();
+    if(data.error){ alert(data.error); return; }
+    renderChats(data.chats, data.active);
+    chat.innerHTML = ""; run = null; setChatMemory("");  // new chat -> empty conversation
+    renderActive(); input.focus();
+  }catch(e){ alert("Could not create the chat."); }
+}
+async function deleteChat(id){
+  if(busy){ alert("A task is running; wait for it to finish."); return; }
+  if(!confirm("⚠ Delete the chat «" + id + "» from project «" + activeProject + "».\n\nIt moves to the "
+    + "project trash (recoverable by hand). The project documents and memory are NOT touched.\n\nConfirm?")) return;
+  try{
+    const r = await fetch("/chats/delete", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({project: activeProject, chat: id})});
+    const data = await r.json();
+    if(data.error){ alert(data.error); return; }
+    const wasActive = (id === activeChat);
+    renderChats(data.chats, data.active);
+    bubble("bot", "🗑 Chat «" + id + "» deleted (moved to the project trash).");
+    if(wasActive && data.active) openChat(data.active);   // open whichever became active
+    renderActive();
+  }catch(e){ alert("Could not delete the chat."); }
+}
+$("#newChat").onclick = newChat;
+function renderProjects(data){
+  activeProject = data.active || null;
+  renderActive();
+  const list = $("#projList"); list.innerHTML = "";
+  (data.projects || []).forEach(n => {
+    const d = document.createElement("div");
+    d.className = "proj" + (n === activeProject ? " active" : "");
+    const name = document.createElement("span");
+    name.className = "proj-name"; name.textContent = n; name.title = n;
+    name.onclick = () => openProject(n);
+    const del = document.createElement("button");
+    del.className = "proj-del"; del.textContent = "🗑"; del.title = "Delete project";
+    del.onclick = (e) => { e.stopPropagation(); deleteProject(n); };
+    d.appendChild(name); d.appendChild(del);
+    list.appendChild(d);
+  });
+  if(!(data.projects || []).length){
+    const v = document.createElement("div"); v.className = "proj-empty";
+    v.textContent = "no projects yet"; list.appendChild(v);
+  }
+}
+async function loadProjects(){
+  try{ renderProjects(await (await fetch("/projects")).json()); }
+  catch(e){ /* backend without projects: the UI stays usable (no-project mode) */ }
+}
+async function deleteProject(name){
+  if(busy){ alert("A task is running; wait for it to finish."); return; }
+  // EXPLICIT, irreversible confirmation: you must TYPE the name (no deleting on the first click).
+  const resp = prompt("⚠ DELETE the project «" + name + "»\n\nIts ENTIRE folder is removed (files, "
+    + ".memory.md and conversation). It moves to the base trash (.trash), recoverable by hand.\n\n"
+    + "To confirm, type the project name:");
+  if(resp === null) return;                              // cancelled
+  if(resp.trim() !== name){ alert("The name doesn't match: nothing was deleted."); return; }
+  try{
+    const r = await fetch("/projects/delete", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({name: name})});
+    const data = await r.json();
+    if(data.error){ alert(data.error); return; }
+    renderProjects(data);                               // repaint (with the active one already reassigned)
+    bubble("bot", "🗑 Project «" + name + "» deleted (moved to the trash).");
+  }catch(e){ alert("Could not delete the project."); }
+}
+async function openProject(name){
+  if(busy) return;                       // don't switch project mid-task
+  try{
+    const r = await fetch("/active-project", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({name: name})});
+    const data = await r.json();
+    if(data.error) return;
+    activeProject = data.active;
+    activeChat = data.active_chat || null;  // Level 14: the project's active chat
+    renderActive();
+    $("#undo").style.display = "none"; snapProject = null;  // 8A: don't undo another project
+    // Repaint the PROJECT list (mark active) and the project's CHAT list.
+    document.querySelectorAll("#projList .proj").forEach(el =>
+      el.classList.toggle("active", el.textContent === activeProject));
+    renderChats(data.chats, activeChat);
+    // LOAD the active CHAT's conversation + both memories (shared project / chat).
+    chat.innerHTML = ""; run = null;
+    (data.conversation || []).forEach(m => bubble(m.role === "user" ? "user" : "bot", m.content));
+    setMemory(data.project_memory || "");   // PROJECT memory (shared)
+    setChatMemory(data.chat_memory || "");    // active CHAT memory
+    input.focus();
+  }catch(e){ /* flaky network: don't break the UI */ }
+}
+// --- Level 12C: search / export the project conversation (reuses the 10D endpoints) ---
+async function searchConversation(){
+  const cont = $("#convResults");
+  if(!activeProject){ cont.innerHTML = '<div class="convItem">Open a project first.</div>'; return; }
+  const q = $("#convSearch").value.trim();
+  if(!q){ cont.innerHTML = ""; return; }
+  try{
+    const r = await fetch("/conversation/search?project=" + encodeURIComponent(activeProject)
+                          + "&chat=" + encodeURIComponent(activeChat || "") + "&q=" + encodeURIComponent(q));
+    const data = await r.json();
+    if(data.error){ cont.innerHTML = '<div class="convItem">' + esc(data.error) + '</div>'; return; }
+    if(!data.total){ cont.innerHTML = '<div class="convItem">No turns with «' + esc(q) + '».</div>'; return; }
+    cont.innerHTML = '<div style="margin-bottom:6px">' + data.total + ' turn(s):</div>' +
+      data.results.map(t =>
+        '<div class="convItem"><b>#' + t.n + '</b>'
+        + '<div class="u">You: ' + esc((t.user || "").slice(0, 160)) + '</div>'
+        + '<div>Agent: ' + esc((t.response || "").slice(0, 160)) + '</div></div>').join("");
+  }catch(e){ cont.innerHTML = '<div class="convItem">Could not search (network?).</div>'; }
+}
+async function exportConversation(format){
+  if(!activeProject){ alert("Open a project first."); return; }
+  const cont = $("#convResults");
+  // Download via fetch()+Blob (NOT window.location): so the ERROR path (503 without pandoc, 404 if the
+  // project was deleted) shows INSIDE the card without navigating away and tearing down the SPA (chat/WS/project).
+  try{
+    const r = await fetch("/conversation/export?project=" + encodeURIComponent(activeProject)
+                          + "&chat=" + encodeURIComponent(activeChat || "") + "&format=" + format);
+    if(!r.ok){
+      let msg = "Could not export (" + r.status + ").";
+      try{ const j = await r.json(); if(j && j.error) msg = j.error; }catch(_){/* non-JSON body */}
+      cont.innerHTML = '<div class="convItem">' + esc(msg) + '</div>';
+      return;
+    }
+    const blob = await r.blob();
+    let name = "conversation-" + activeProject + "." + format;   // fallback
+    const m = (r.headers.get("content-disposition") || "").match(/filename="?([^"]+)"?/);
+    if(m) name = m[1];
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+  }catch(e){ cont.innerHTML = '<div class="convItem">Could not export (network?).</div>'; }
+}
+$("#btnConvSearch").onclick = searchConversation;
+$("#convSearch").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); searchConversation(); } });
+$("#btnExportMd").onclick = () => exportConversation("md");
+$("#newProj").onclick = async () => {
+  const name = (prompt("Name for the new project:") || "").trim();
+  if(!name) return;
+  try{
+    const r = await fetch("/projects", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({name: name})});
+    const data = await r.json();
+    if(data.error){ alert(data.error); return; }
+    chat.innerHTML = ""; run = null;        // new project -> empty conversation
+    renderProjects(data);
+    input.focus();
+  }catch(e){ alert("Could not create the project."); }
+};
+
+// ---- Time machine (Level 8A): undo the last task ----
+let snapProject = null;
+$("#undo").onclick = async () => {
+  const project = snapProject || activeProject;
+  if(!project || busy) return;
+  try{
+    const prev = await (await fetch("/undo-preview?project=" + encodeURIComponent(project))).json();
+    if(prev.empty || prev.error){ alert("Nothing to undo."); $("#undo").style.display="none"; return; }
+    const pl = prev.plan || {};
+    const lines = [];
+    if((pl.revert||[]).length) lines.push("revert (modified): " + pl.revert.join(", "));
+    if((pl.recreate||[]).length)  lines.push("recreate (deleted): " + pl.recreate.join(", "));
+    if((pl.delete||[]).length)   lines.push("delete (created by the task): " + pl.delete.join(", "));
+    if(!lines.length){ alert("The last task didn't change any files."); $("#undo").style.display="none"; return; }
+    if(!confirm("↩ Undoing the last task of «" + project + "» will revert:\n\n" + lines.join("\n") + "\n\nConfirm?")) return;
+    const r = await fetch("/undo", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({project: project})});
+    const data = await r.json();
+    if(data.error){ alert(data.error); return; }
+    bubble("bot", "↩ Undone: the files returned to the state before the last task.");
+    $("#undo").style.display = "none";
+  }catch(e){ alert("Could not undo."); }
+};
+
+// ---- Local voice (Level 8D): read answers (TTS) and dictate (STT) ----
+let currentAudio = null;
+async function playAudio(text){
+  try{
+    if(currentAudio){ currentAudio.pause(); currentAudio = null; }
+    const r = await fetch("/tts", {method:"POST", headers:{"Content-Type":"application/json"},
+                          body: JSON.stringify({text: text})});
+    if(!r.ok) return;
+    currentAudio = new Audio(URL.createObjectURL(await r.blob())); currentAudio.play();
+  }catch(e){ /* no voice: don't break */ }
+}
+// Live dictation with a sliding window (8D). We capture PCM with Web Audio; every `sttInterval`
+// seconds we transcribe the last `sttWindow` s (bounded cost) and update the live text;
+// on release, a FINAL transcription of the whole clip. NEVER two transcriptions at once (inFlight guard).
+let audioCtx=null, processor=null, source=null, micStream=null, pcm=[], micSampleRate=48000;
+let recording=false, inFlight=false, partialTimer=null, baseText="";
+function encodeWav(samples, sr){
+  const buf=new ArrayBuffer(44+samples.length*2), dv=new DataView(buf);
+  const s=(o,t)=>{ for(let i=0;i<t.length;i++) dv.setUint8(o+i, t.charCodeAt(i)); };
+  s(0,"RIFF"); dv.setUint32(4,36+samples.length*2,true); s(8,"WAVE"); s(12,"fmt ");
+  dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true); dv.setUint32(24,sr,true);
+  dv.setUint32(28,sr*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true);
+  s(36,"data"); dv.setUint32(40,samples.length*2,true);
+  let o=44; for(let i=0;i<samples.length;i++){ const v=Math.max(-1,Math.min(1,samples[i])); dv.setInt16(o, v<0?v*0x8000:v*0x7FFF, true); o+=2; }
+  return new Blob([dv], {type:"audio/wav"});
+}
+function flattenPCM(){ const n=pcm.reduce((s,a)=>s+a.length,0), p=new Float32Array(n); let o=0; for(const a of pcm){ p.set(a,o); o+=a.length; } return p; }
+async function transcribeBlob(blob){
+  const fd=new FormData(); fd.append("audio", blob, "dictation.wav");
+  const ctl=new AbortController();                         // timeout: if /stt hangs, don't leave inFlight stuck
+  const to=setTimeout(()=>ctl.abort(), Math.max(sttWindow, 15)*1000 + 5000);
+  try{
+    const data=await (await fetch("/stt",{method:"POST",body:fd,signal:ctl.signal})).json();
+    return data.text || "";
+  } finally { clearTimeout(to); }
+}
+async function partialCycle(){
+  if(!recording || inFlight) return;                 // req 1: if the previous one is still running, SKIP (don't stack)
+  const p=flattenPCM(); if(p.length < micSampleRate*0.8) return;   // still very little audio
+  const win = p.subarray(Math.max(0, p.length - Math.round(sttWindow*micSampleRate)));  // sliding window
+  inFlight=true;
+  try{ const t=await transcribeBlob(encodeWav(win, micSampleRate)); if(recording && t) input.value = baseText + t; }
+  catch(e){} finally{ inFlight=false; }
+}
+async function toggleMic(){
+  if(recording){ await stopRecording(); return; }
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)(); micSampleRate=audioCtx.sampleRate;
+    source=audioCtx.createMediaStreamSource(micStream);
+    processor=audioCtx.createScriptProcessor(4096,1,1); pcm=[];
+    processor.onaudioprocess = e => {                     // cap the buffer to the last MAX_CLIP_SEC s
+      pcm.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      let total=pcm.reduce((n,a)=>n+a.length,0);
+      while(pcm.length>1 && total - pcm[0].length > MAX_CLIP_SEC*micSampleRate){ total-=pcm.shift().length; }
+    };
+    source.connect(processor); processor.connect(audioCtx.destination);
+    recording=true; inFlight=false; baseText = input.value ? input.value+" " : "";
+    $("#mic").classList.add("recording"); $("#mic").textContent="⏹";
+    partialTimer=setInterval(partialCycle, sttInterval*1000);   // live transcription every N s
+  }catch(e){ alert("Could not access the microphone."); }
+}
+async function stopRecording(){
+  recording=false; clearInterval(partialTimer);
+  $("#mic").classList.remove("recording"); $("#mic").disabled=true; $("#mic").textContent="…";
+  try{ processor.disconnect(); source.disconnect(); micStream.getTracks().forEach(t=>t.stop()); }catch(e){}
+  const p=flattenPCM(); try{ await audioCtx.close(); }catch(e){}
+  if(p.length >= micSampleRate*0.3){
+    try{ const t=await transcribeBlob(encodeWav(p, micSampleRate)); if(t) input.value = baseText + t; }  // FINAL: whole clip
+    catch(e){ alert("Could not transcribe."); }
+  }
+  $("#mic").disabled=false; $("#mic").textContent="🎤"; input.focus();
+}
+$("#mic").onclick = toggleMic;
+
+// ---- Skills (Level 9C): skills panel + force one by hand ----
+let forcedSkill = null;
+async function loadSkills(){
+  try{
+    const {skills} = await (await fetch("/skills")).json();
+    const cont = $("#skillList"); cont.innerHTML = "";
+    if(!skills || !skills.length){ $("#cardSkills").style.display = "none"; return; }
+    skills.forEach(h => {
+      const el = document.createElement("div");
+      el.className = "skill"; el.textContent = h.name;
+      el.title = h.description || h.name; el.dataset.name = h.name;
+      el.onclick = () => {                                   // click = force; click again = auto
+        forcedSkill = (forcedSkill === h.name) ? null : h.name;
+        renderSkills();
+      };
+      cont.appendChild(el);
+    });
+    $("#cardSkills").style.display = "";
+    renderSkills();
+  }catch(e){ $("#cardSkills").style.display = "none"; }  // subsystem off or no backend: hide it
+}
+function renderSkills(){
+  document.querySelectorAll("#skillList .skill").forEach(el =>
+    el.classList.toggle("forced", el.dataset.name === forcedSkill));
+  $("#skillHint").textContent = forcedSkill ? ("forced: " + forcedSkill) : "automatic selection";
+}
+function markSkillActive(name){                            // briefly highlight the skill that activated
+  document.querySelectorAll("#skillList .skill").forEach(el =>
+    el.classList.toggle("active", el.dataset.name === name));
+}
+async function loadVoice(){
+  try{
+    voiceState = await (await fetch("/voice-status")).json();
+    if(voiceState.interval) sttInterval = voiceState.interval;   // from config.env (STT_INTERVAL_SEC)
+    if(voiceState.window)   sttWindow   = voiceState.window;     // sliding window (STT_WINDOW_SEC)
+    if(voiceState.stt) $("#mic").style.display = "";               // the mic only if STT exists
+  }catch(e){ /* no voice backend: the UI continues */ }
+}
+
+// ---- Attach image (Phase 2) + drop files (Level 10C): upload to the active project ----
+let attachedImage = "";                              // uploaded image, pending attach to the next turn
+const _IMG_EXTS = [".png",".jpg",".jpeg",".webp",".gif",".bmp"];
+function isImageName(n){ n = (n||"").toLowerCase(); return _IMG_EXTS.some(e => n.endsWith(e)); }
+function attachImage(name){
+  attachedImage = name;
+  const chip = $("#imgAttached");
+  chip.querySelector(".name").textContent = name;
+  chip.style.display = "flex";
+}
+function removeImage(){
+  attachedImage = "";
+  const chip = $("#imgAttached"); if(chip) chip.style.display = "none";
+}
+async function uploadFile(file){
+  if(!activeProject){ bubble("bot", "Open or create a project before uploading files."); return; }
+  bubble("user", "📎 " + file.name);
+  const fd = new FormData(); fd.append("file", file); fd.append("project", activeProject);
+  try{
+    const r = await fetch("/upload", {method: "POST", body: fd});
+    const j = await r.json();
+    if(!r.ok){ bubble("bot", "Could not upload: " + (j.error || r.status)); return; }
+    if(isImageName(j.name)){                    // Phase 2: it's an image -> attach so the next turn reads it
+      attachImage(j.name);
+      bubble("bot", `Image «${j.name}» ready 🖼️. Write your question and I'll read it.`);
+    } else {
+      bubble("bot", `Saved «${j.name}» (${Math.round(j.bytes/1024)} KB)` + (j.indexed ? " · indexed ✓" : ""));
+    }
+  }catch(err){ bubble("bot", "Error uploading the file."); }
+}
+function setupDrop(){
+  const zone = $("#chat");
+  ["dragenter", "dragover"].forEach(t => zone.addEventListener(t, e => {
+    e.preventDefault(); zone.classList.add("dragging");
+  }));
+  ["dragleave", "drop"].forEach(t => zone.addEventListener(t, e => {
+    e.preventDefault(); zone.classList.remove("dragging");
+  }));
+  zone.addEventListener("drop", async e => {
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(file) await uploadFile(file);
+  });
+}
+// Phase 2: PASTE an image from the clipboard (Ctrl/Cmd-V) -> upload and attach. If there's no image, it doesn't interfere.
+function setupPaste(){
+  document.addEventListener("paste", async e => {
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for(const it of items){
+      if(it.type && it.type.startsWith("image/")){
+        const blob = it.getAsFile();
+        if(blob){
+          e.preventDefault();
+          const ext = (it.type.split("/")[1] || "png").replace("jpeg","jpg");
+          await uploadFile(new File([blob], `pasted_${Date.now()}.${ext}`, {type: it.type}));
+        }
+        return;
+      }
+    }
+  });
+}
+
+// ---- N17 Phase A: SYSTEM status panel (brain/model/web/search/version) ----
+// Polls /system-status every 15 s. Anti-flicker: the vision HANDOFF pauses the brain a few seconds
+// on purpose -> the big alert only shows after 2 consecutive polls with the brain down (~15-30 s).
+let systemFailures = 0;
+function renderRow(id, txt, color){ const el = $(id); el.textContent = txt; el.style.color = color || ""; }
+async function pollSystem(){
+  try{
+    const r = await fetch("/system-status");
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+    renderRow("#s-web", "● up", "var(--green)");
+    renderRow("#s-version", s.version || "unknown", s.version ? "" : "var(--amber)");
+    $("#versionTag").textContent = s.version ? ("v " + s.version) : "";
+    renderRow("#s-search", s.web_search ? "● on" : "○ off",
+              s.web_search ? "var(--green)" : "var(--txt2)");
+    if(s.brain){
+      systemFailures = 0;
+      renderRow("#s-brain", "● up", "var(--green)");
+      const mod = s.model || s.model_config || "?";
+      renderRow("#s-model", mod); $("#s-model").title = s.model_config || "";
+      $("#systemAlert").style.display = "none";
+    } else if(s.vision_in_progress){
+      // VISION HANDOFF: the brain is paused ON PURPOSE (reading an image), not a crash.
+      // Honest amber and NO red banner: suggesting "restart it" here would push loading a 2nd model with
+      // RAM held by the reader (the OOM the handoff exists to avoid). Adversarial review N17-A.
+      systemFailures = 0;
+      renderRow("#s-brain", "⏸ vision handoff (comes back on its own)", "var(--amber)");
+      renderRow("#s-model", "-");
+      $("#systemAlert").style.display = "none";
+    } else {
+      systemFailures++;
+      renderRow("#s-brain", "○ down", "var(--red)");
+      renderRow("#s-model", "-");
+      if(systemFailures >= 2) $("#systemAlert").style.display = "block";
+    }
+  }catch(e){
+    // the fetch itself failed -> it's the WEB that's not responding (the connection orb already reflects it)
+    renderRow("#s-web", "○ not responding", "var(--red)");
+    renderRow("#s-brain", "?", "var(--txt2)");
+  }
+}
+
+$("#imgAttached").querySelector(".remove").onclick = removeImage;
+connect();
+loadProjects();
+loadVoice();
+loadSkills();
+setupDrop();
+setupPaste();
+pollSystem(); setInterval(pollSystem, 15000);
+input.focus();
+</script>
+</body>
+</html>
