@@ -1,0 +1,4 @@
+# Development / CI tools (not needed to run the agent).
+ruff==0.15.11               # linter + formatter (also the security rules used by the self-audit)
+bandit==1.9.4               # Python security linter (self-audit SAST)
+pip-audit==2.10.0           # known-vulnerability check of the pinned dependencies

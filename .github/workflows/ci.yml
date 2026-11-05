@@ -1,0 +1,51 @@
+name: CI
+
+# Lint, format and the model-free test suite on every push and pull request.
+# The agent itself runs on Apple Silicon (MLX); the tests need NO model, NO GPU and NO network,
+# so CI runs them on Linux with the cross-platform subset of the dependencies.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & format (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.15.11
+      - name: ruff check
+        run: ruff check .
+      - name: ruff format --check
+        run: ruff format --check .
+
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: System tools used by some tests (pandoc)
+        run: sudo apt-get update -q && sudo apt-get install -y -q pandoc
+      - name: Install dependencies (cross-platform subset)
+        run: |
+          # Drop the Apple-Silicon-only packages; the model-free tests never import them.
+          grep -vE '^(vllm-mlx|mlx-lm|mlx-whisper)\b' requirements.txt > ci-requirements.txt
+          pip install -r ci-requirements.txt
+      - name: Test config (from the template)
+        run: cp config.env.example config.env
+      - name: Run the test suite
+        run: python -m unittest discover -s tests -v

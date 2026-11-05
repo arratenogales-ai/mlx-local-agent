@@ -1,0 +1,23 @@
+# Runtime dependencies, pinned and tested on macOS arm64 (Apple Silicon), Python 3.12.
+# 100% local and free: MLX model server, OpenAI-compatible client, web UI and tools.
+vllm-mlx==0.3.0             # local model server (Apple Silicon only)
+mlx-lm==0.31.3              # MLX language models (Apple Silicon only)
+huggingface_hub==1.21.0
+openai==2.44.0              # OpenAI-compatible client (talks to the local server)
+fastapi==0.138.1
+uvicorn==0.49.0
+websockets==16.0
+httpx==0.28.1
+beautifulsoup4==4.15.0      # optional web search: HTML → text
+ddgs==9.14.4                # optional web search: DuckDuckGo
+trafilatura==2.1.0          # optional web search: main-content extraction
+mlx-whisper==0.4.3          # local speech-to-text (Apple Silicon only)
+av==17.1.0                  # decodes browser audio with an embedded ffmpeg
+numpy==2.4.6
+python-multipart==0.0.32    # multipart uploads (/stt, /upload)
+openpyxl==3.1.5             # RAG indexes .xlsx
+python-pptx==1.0.2          # RAG indexes .pptx; the worker creates .pptx
+pytest==9.1.1               # the worker VERIFIES "script + test" tasks by running pytest
+psutil==7.2.2               # RAM guard for on-demand vision
+# Optional, installed separately: mlx-vlm (on-demand vision), mlx-embeddings (semantic RAG), pandoc and
+# pdftotext (system tools for .docx/.pdf). Every one of them degrades honestly when missing.

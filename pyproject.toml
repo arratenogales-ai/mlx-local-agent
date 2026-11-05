@@ -1,0 +1,35 @@
+[project]
+name = "mlx-local-agent"
+version = "1.0.0"
+description = "A local-first coding agent running a 14B model on a Mac via MLX: deterministic harness, honest verification, 100% local by default."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "arratenogales-ai" }]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests", "skills"]
+
+[tool.ruff.lint]
+# pyflakes + pycodestyle errors/warnings + bugbear + import sorting + pyupgrade subset + security rules.
+select = ["E", "F", "W", "B", "I", "S", "UP"]
+ignore = [
+  "E501",   # long lines are allowed when they carry an explanation (formatter wraps code)
+  "S101",   # assert is fine in tests
+  "S110",   # try/except/pass: used on purpose for best-effort cleanups, each one commented
+  "S112",   # try/except/continue: same
+  "UP006", "UP035",  # keep typing style as written
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B011"]
+"skills/*" = ["S"]
+# B023: the WebSocket handlers define the worker closure inside the receive loop, but each closure is
+# awaited (`await fut`) before the next iteration, so it never sees a later loop variable.
+# B008: `File(...)` / `Form(...)` as default arguments is the standard FastAPI dependency idiom.
+"src/web_server.py" = ["B023", "B008"]
+
+[tool.ruff.format]
+quote-style = "double"

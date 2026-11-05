@@ -1,0 +1,22 @@
+# Security patches for INDIRECT dependencies (pulled in by vllm-mlx, transformers, mlx-vlm...).
+# Install them AFTER requirements.txt:   pip install -r requirements-security.txt
+# They cannot live in requirements.txt: vllm-mlx 0.3.0 requires gradio, and gradio caps pillow<13, so pip
+# cannot resolve both at once. Verified on macOS (Apple silicon): test suite, vision, pptx/xlsx and web search.
+# pip-audit over the installed venv: from 16 vulnerable packages down to 2 accepted ones (see src/self_audit.py).
+aiohttp==3.14.5
+anyio==4.16.0
+brotli==1.2.1
+certifi==2026.10.23
+cryptography==50.0.2
+datasets==5.0.1
+filelock==4.2.8
+fsspec==2026.6.0
+h2==4.4.1
+mcp==1.30.0
+multidict==6.9.1
+pyjwt==2.15.1
+soupsieve==2.10
+typing-extensions==4.16.0
+urllib3==2.8.0
+yarl==1.25.1
+pillow==13.0.0              # 12.x has dozens of CVEs (crafted images); verified with vision, pptx and xlsx
