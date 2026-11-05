@@ -17,7 +17,7 @@ numpy==2.4.6
 python-multipart==0.0.32    # multipart uploads (/stt, /upload)
 openpyxl==3.1.5             # RAG indexes .xlsx
 python-pptx==1.0.2          # RAG indexes .pptx; the worker creates .pptx
-pytest==9.1.1               # the worker VERIFIES "script + test" tasks by running pytest
+pytest==9.2.0               # the worker VERIFIES "script + test" tasks by running pytest
 psutil==7.2.2               # RAM guard for on-demand vision
 # Optional, installed separately: mlx-vlm (on-demand vision), mlx-embeddings (semantic RAG), pandoc and
 # pdftotext (system tools for .docx/.pdf). Every one of them degrades honestly when missing.
