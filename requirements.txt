@@ -14,7 +14,7 @@ trafilatura==2.1.0          # optional web search: main-content extraction
 mlx-whisper==0.4.3          # local speech-to-text (Apple Silicon only)
 av==17.1.0                  # decodes browser audio with an embedded ffmpeg
 numpy==2.4.6
-python-multipart==0.0.32    # multipart uploads (/stt, /upload)
+python-multipart==0.0.33    # multipart uploads (/stt, /upload)
 openpyxl==3.1.5             # RAG indexes .xlsx
 python-pptx==1.0.2          # RAG indexes .pptx; the worker creates .pptx
 pytest==9.1.1               # the worker VERIFIES "script + test" tasks by running pytest
