@@ -1,0 +1,36 @@
+name: CI
+
+# Lint, format and the model-free test suite (the publishing rules included) on every push and pull request.
+# It runs where the app runs, on macOS with Apple Silicon, and installs exactly the versions pinned in uv.lock.
+# The tests need no model, no GPU and no network.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, format and tests (macOS, Apple Silicon)
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: Install the locked environment
+        run: uv sync --locked --all-extras
+      - name: ruff check
+        run: uv run --no-sync ruff check .
+      - name: ruff format --check
+        run: uv run --no-sync ruff format --check .
+      - name: System tool used by some tests (pandoc)
+        run: brew install pandoc
+      - name: Test config (from the template)
+        run: cp config.env.example config.env
+      - name: Test suite
+        run: uv run --no-sync python -m unittest discover -s tests -v

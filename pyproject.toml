@@ -1,0 +1,112 @@
+[project]
+name = "mlx-local-agent"
+version = "1.1.0"
+description = "A desktop-style AI assistant for the Mac (chat + agent) running a local 14B model through MLX, with results verified by code."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "arratenogales-ai" }]
+classifiers = [
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Direct dependencies, pinned. Every indirect one is locked in uv.lock (`uv sync --locked` installs exactly that).
+dependencies = [
+  "vllm-mlx==0.3.0",           # local model server (Apple Silicon only)
+  "mlx-lm==0.31.3",            # MLX language models (Apple Silicon only)
+  "huggingface-hub==1.21.0",
+  "openai==2.44.0",            # OpenAI-compatible client (talks to the local server)
+  "fastapi==0.138.1",
+  "uvicorn==0.49.0",
+  "websockets==16.0",
+  "httpx==0.28.1",
+  "beautifulsoup4==4.15.0",    # optional web search: HTML to text
+  "ddgs==9.14.4",              # optional web search: DuckDuckGo
+  "trafilatura==2.1.0",        # optional web search: main-content extraction
+  "mlx-whisper==0.4.3",        # local speech-to-text (Apple Silicon only)
+  "av==17.1.0",                # decodes browser audio with an embedded ffmpeg
+  "numpy==2.4.6",
+  "python-multipart==0.0.32",  # multipart uploads (/stt, /upload)
+  "openpyxl==3.1.5",           # RAG indexes .xlsx
+  "python-pptx==1.0.2",        # RAG indexes .pptx; the agent creates .pptx
+  "pytest==9.1.1",             # the agent VERIFIES "script + test" tasks by running pytest
+  "psutil==7.2.2",             # RAM guard for on-demand vision
+]
+
+[project.optional-dependencies]
+vision = ["mlx-vlm==0.6.3"]               # reads images on demand (VISION_MODEL)
+embeddings = ["mlx-embeddings==0.1.0"]    # optional semantic retrieval across languages (EMBEDDINGS=1)
+
+[project.scripts]
+mlx-agent = "mlx_local_agent.orchestrator:main"        # command line: tasks, chat, --self-audit
+mlx-agent-web = "mlx_local_agent.web_server:main"      # the web app (chat + agentic mode)
+mlx-agent-brain = "mlx_local_agent.brain:main"         # the model server, with the flags from config.env
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.11",       # linter + formatter (also the security rules used by the self-audit)
+  "bandit==1.9.4",       # Python security linter (self-audit SAST)
+  "pip-audit==2.10.0",   # known-vulnerability check of the installed environment
+]
+
+[build-system]
+requires = ["uv_build>=0.9.30,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# MLX runs only on Apple Silicon, so the lock is resolved only for macOS on arm64.
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+# Security patches for INDIRECT dependencies (pulled in by vllm-mlx, transformers, mlx-vlm...).
+# pip-audit over the installed environment: from 16 vulnerable packages to 2 accepted ones (Level 20), then to 0 (Level 23).
+constraint-dependencies = [
+  "aiohttp>=3.14.5",
+  "anyio>=4.16.0",
+  "brotli>=1.2.1",
+  "certifi>=2026.10.23",
+  "cryptography>=50.0.2",
+  "datasets>=5.0.1",
+  "filelock>=4.2.8",
+  "fsspec>=2026.6.0",
+  "h2>=4.4.1",
+  "mcp>=1.30.0",
+  "multidict>=6.9.1",
+  "pyjwt>=2.15.1",
+  "setuptools>=84.1.0",
+  "soupsieve>=2.10",
+  "torch>=2.13.0",
+  "typing-extensions>=4.16.0",
+  "urllib3>=2.8.0",
+  "yarl>=1.25.1",
+]
+# Pillow 12.x has dozens of CVEs (crafted images), but gradio (required by vllm-mlx) caps pillow<13.
+# The override replaces that cap; verified on Apple Silicon with vision, .pptx/.xlsx and the test suite.
+override-dependencies = ["pillow==13.0.0"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests", "skills"]
+
+[tool.ruff.lint]
+# pyflakes + pycodestyle errors/warnings + bugbear + import sorting + pyupgrade subset + security rules.
+select = ["E", "F", "W", "B", "I", "S", "UP"]
+ignore = [
+  "E501",   # long lines are allowed when they carry an explanation (formatter wraps code)
+  "S101",   # assert is fine in tests
+  "S110",   # try/except/pass: used on purpose for best-effort cleanups, each one commented
+  "S112",   # try/except/continue: same
+  "UP006", "UP035",  # keep typing style as written
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B011"]
+"skills/*" = ["S"]
+# B023: the WebSocket handlers define the worker closure inside the receive loop, but each closure is
+# awaited (`await fut`) before the next iteration, so it never sees a later loop variable.
+# B008: `File(...)` / `Form(...)` as default arguments is the standard FastAPI dependency idiom.
+"src/mlx_local_agent/web_server.py" = ["B023", "B008"]
+
+[tool.ruff.format]
+quote-style = "double"
